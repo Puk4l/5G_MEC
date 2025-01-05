@@ -45,6 +45,12 @@ model.fit(X_train, y_train)
 end_time = time.time()
 print(f"Model training completed in {end_time - start_time:.2f} seconds.")
 
+# Save the model to model.txt
+print("Saving the model to model.txt...")
+booster = model.booster_  # Get the underlying LightGBM Booster
+booster.save_model('model.txt')
+print("Model saved successfully!")
+
 # Make predictions
 y_pred_train = model.predict(X_train)
 y_pred_test = model.predict(X_test)
