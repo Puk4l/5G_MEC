@@ -1,0 +1,76 @@
+import requests
+import pandas as pd
+from sklearn.cluster import DBSCAN
+
+# Load your dataset
+df = pd.read_csv('user_input.csv')
+
+# Define the latitude and longitude ranges for each container
+container_ranges = {
+    5001: {'lat_min': -90, 'lat_max': -60, 'lon_min': -180, 'lon_max': 180},
+    5002: {'lat_min': -60, 'lat_max': -30, 'lon_min': -180, 'lon_max': 180},
+    5003: {'lat_min': -30, 'lat_max': 0, 'lon_min': -180, 'lon_max': 180},
+    5004: {'lat_min': 0, 'lat_max': 30, 'lon_min': -180, 'lon_max': 180},
+    5005: {'lat_min': 30, 'lat_max': 60, 'lon_min': -180, 'lon_max': 180}
+}
+
+# Extract Latitude and Longitude for clustering
+coordinates = df[['Latitude', 'Longitude']].values
+
+# Apply DBSCAN clustering
+db = DBSCAN(eps=0.5, min_samples=5)  # Adjust eps and min_samples based on your data
+df['Cluster'] = db.fit_predict(coordinates)
+
+# Function to check which container the user belongs to based on latitude and longitude
+def find_nearest_container(lat, lon):
+    for port, bounds in container_ranges.items():
+        if bounds['lat_min'] <= lat <= bounds['lat_max'] and bounds['lon_min'] <= lon <= bounds['lon_max']:
+            return port
+    return None  # In case no container range matches, though this should not happen
+
+# Function to send data to the appropriate container
+def send_data_to_container(user_data, container_port):
+    url = f'http://localhost:{container_port}/predict'  # Assuming containers have a /predict endpoint
+    try:
+        response = requests.post(url, json=user_data)
+        response.raise_for_status()  # Raise an exception for HTTP errors
+        return response.json()  # Assuming the container returns JSON
+    except requests.exceptions.RequestException as e:
+        print(f"Error while sending data to container {container_port}: {e}")
+        return None
+
+# Create a dictionary to store results for each container
+container_results = {5001: [], 5002: [], 5003: [], 5004: [], 5005: []}
+
+# Define the input columns to send to the container
+input_columns = ['Application_Type', 'Signal_Strength', 'Latency', 'Required_Bandwidth', 'Allocated_Bandwidth']
+
+# Loop through each user, assign them to a container, and send data
+for idx, row in df.iterrows():
+    # Extract the relevant input columns
+    user_data = row[input_columns].to_dict()  # Only take input columns
+    lat = row['Latitude']
+    lon = row['Longitude']
+    
+    # Find the nearest container based on latitude and longitude
+    container_port = find_nearest_container(lat, lon)
+    
+    if container_port:
+        # Send the user data to the appropriate container
+        prediction = send_data_to_container(user_data, container_port)
+        
+        if prediction:
+            # Extract the actual prediction from the response and append to results
+            result_data = user_data.copy()  # Copy the input data
+            result_data['Prediction'] = prediction.get('prediction', 'No Prediction')  # Add the prediction
+            
+            # Append the result to the correct container's results
+            container_results[container_port].append(result_data)
+
+# Save the results for each container to CSV files
+for port, results in container_results.items():
+    if results:  # Only save to CSV if there are results
+        df_results = pd.DataFrame(results)
+        df_results.to_csv(f'output_container_{port}.csv', index=False)
+
+print("Data sent and results saved to CSV files.")
